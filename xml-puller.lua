@@ -1,6 +1,6 @@
 local event = require 'event'
+local Buffer = require 'buffer'
 
-local CONT_MASK = 63
 
 local Puller = {}
 
@@ -39,19 +39,33 @@ function Puller:_parse_encoding_trailer()
 end
 
 function Puller:_parse_decl()
-    self:_advance_buffer(6)
+    self:_advancebuffer(6)
     self:_skip_whitespace()
-    assert(self:eat('version'), string.format('expected version found "%s"', string.sub(self._buffer, 1, 7)))
-    self:_parse_eq()
-    local q = self:_parse_quote()
-    local v = assert(self:eat('1%.%d+'), 'expected version number')
-    self:_parse_quote(q)
+    if not self:eat('version') then
+        return nil, 'expected `version`'
+    end
+    if not self:eat('=') then
+        return nil, 'expected = found ' .. string.char(self.buffer:current_byte())
+    end
+    local q = self:eat('\'') or self:eat('"')
+    if not q then
+        return nil, 'version must be quoted ' .. string.char(self.buffer:current_byte())
+    end
+    local v = self.buffer:consume_str('1%.%d+')
+    if not v then
+        return nil, 'expected version number'
+    end
+    self:eat(q)
     self:_skip_whitespace()
     local encoding
     if self:eat('encoding') then
         self:_parse_eq()
         local q2 = self:_parse_quote()
-        encoding = assert(self:eat('[a-zA-Z]'))
+        local e
+        encoding, e = self:eat('[a-zA-Z]')
+        if not encoding then
+            return nil, e
+        end
         encoding = encoding .. self:_parse_encoding_trailer()
         self:_parse_quote(q2)
         self:_skip_whitespace()
@@ -60,14 +74,15 @@ function Puller:_parse_decl()
     if self:eat('standalone') then
         self:_parse_eq()
         local q3 = self:_parse_quote()
-        local name = self:_eat_name()
-        if name == 'yes' then
+        if self:eat('yes') then
             standalone = true
-        elseif name == 'no' then
+        elseif self:eat('no') then
             standalone = false
         end
-        assert(standalone ~= nil, 'Invalid value for standalone ' .. name)
-        self:_parse_quote(q3)
+        if standalone == nil then
+            return nil, 'Invalid value for standalone'
+        end
+        self:eat(q3)
     end
     self:_skip_whitespace()
     self:eat('%?>')
@@ -77,22 +92,22 @@ end
 function Puller:_eat_name()
     local at_start, len = self:_at_name_start()
     assert(at_start, 'Invalid name start')
-    local ret = self:_advance_buffer(len)
+    local ret = self.buffer:advance(len)
+    
     local at_continue, len = self:_at_name_cont()
     while at_continue do
-        ret = ret .. self:_advance_buffer(len)
+        ret = ret .. self.buffer:advance(len)
         at_continue, len = self:_at_name_cont()
     end
     return ret
 end
 
 function Puller:_at_name_start()
-    local ascii = string.match(self._buffer, '^[a-zA-Z:_]')
-    if ascii then
+    if self.buffer:starts_with('[a-zA-Z:_]') then
         return true, 1
     end
 
-    local ch, len = self:_next_utf8_int()
+    local ch, len = self.buffer:next_utf8_int()
 
     return ((ch >= 0x0000C0 and ch <= 0x0000D6)
         or (ch >= 0x0000D8 and ch <= 0x0000F6)
@@ -109,11 +124,10 @@ function Puller:_at_name_start()
 end
 
 function Puller:_at_name_cont()
-    local ascii = string.match(self._buffer, '^[a-zA-Z0-9:_%-%.]')
-    if ascii then
+    if self.buffer:starts_with('[a-zA-Z0-9:_%-%.]') then
         return true, 1
     end
-    local ch, len = self:_next_utf8_int()
+    local ch, len = self.buffer:next_utf8_int()
     return (ch == 0x0000B7
         or (ch >= 0x0000C0 and ch <= 0x0000D6)
         or (ch >= 0x0000D8 and ch <= 0x0000F6)
@@ -131,31 +145,6 @@ function Puller:_at_name_cont()
         or (ch >= 0x010000 and ch <= 0x0EFFFF)), len
 end
 
-function Puller:_next_utf8_int()
-    local function acc_cont_byte(acc, b)
-        return (acc << 6) | (b & CONT_MASK)
-    end
-    local byte = string.byte(self._buffer, 1, 1) or 0
-    if byte < 128 then
-        return byte, 1
-    end
-    local init = byte & (0x7F >> 2)
-    local y = string.byte(self._buffer, 2, 2) or 0
-    local ch = acc_cont_byte(init, y)
-    if byte < 0xE0 then
-        return ch, 2
-    end
-    local z = string.byte(self._buffer, 3, 3) or 0
-    local y_z = acc_cont_byte(y & CONT_MASK, z)
-    ch = init << 12 | y_z
-    if byte < 0xF0 then
-        return ch, 3
-    end
-    local w = string.byte(self._buffer, 4, 4) or 0
-    ch = (init & 7) << 18 | acc_cont_byte(y_z, w)
-    return ch, 4
-end
-
 function Puller:_parse_name_cont()
     return assert(self:eat('[]+'))
 end
@@ -167,7 +156,7 @@ function Puller.new(buffer, buffer_is_fragment)
     end
     local ret = {
         ---@type string
-        _buffer = buffer,
+        buffer = Buffer.new(buffer),
         depth = 0,
         state = st,
     }
@@ -176,30 +165,21 @@ function Puller.new(buffer, buffer_is_fragment)
 end
 
 function Puller:eat(s)
-    local s2 = string.match(self._buffer, string.format('^%s', s))
-
-    if s2 then
-        self:_advance_buffer(#s2)
-        return s2
-    end
+    return self.buffer:consume_str(s)
 end
 
-function Puller:_advance_buffer(ct)
-    local ret = string.sub(self._buffer, 1, ct)
-    self._buffer = string.sub(self._buffer, ct+1)
-    return ret
+function Puller:_advancebuffer(ct)
+    return self.buffer:advance(ct)
 end
 
 function Puller:_skip_whitespace()
-    local ws = string.match(self._buffer, "^%s*")
-    self:_advance_buffer(#ws)
-    return #ws
+    self.buffer:skip_whitespace()
 end
 
 function Puller:_complete_string(quote)
-    local after = string.sub(self._buffer, 2)
+    local after = string.sub(self.buffer, 2)
     local _, end_idx = string.find(after, quote)
-    return string.sub(self._buffer, 1, end_idx)
+    return string.sub(self.buffer, 1, end_idx)
 end
 
 ---Fetch the next full block of non-whitespace
@@ -209,14 +189,14 @@ function Puller:_next_block(target_end)
     -- a string because that would mean we need to look
     -- for the companion quote symbol and not whitespace
     -- as the terminator of the block
-    local next_char = string.sub(self._buffer, 1, 2);
+    local next_char = string.sub(self.buffer, 1, 2);
     if next_char == '"' or next_char == '\'' then
         local s = self._complete_string(next_char)
-        self:_advance_buffer(#s)
+        self:_advancebuffer(#s)
         return s
     else
-        local s = string.match(self._buffer, "^[^%s]+")
-        self:_advance_buffer(#s)
+        local s = string.match(self.buffer, "^[^%s]+")
+        self:_advancebuffer(#s)
         return s
     end
 end
@@ -225,7 +205,7 @@ function Puller:next()
     self:_skip_whitespace()
     if self.state == state.declaration then
         self.state = state.after_declaration
-        if string.find(self._buffer, '<%?xml') then
+        if self.buffer:starts_with('<%?xml') then
             return self:_parse_decl(self)
         else
             return self:next()
