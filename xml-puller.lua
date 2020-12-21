@@ -18,15 +18,6 @@ local state = {
     done = 'End',
 }
 
-
-function Puller:_parse_quote(q)
-    return assert(self:eat(q or '["\']'), string.format('expected %s', q or '" or \''))
-end
-
-function Puller:_parse_eq()
-    return assert(self:eat('='), 'expected equal sign')
-end
-
 --- parse any number of letters, numbers, periods
 --- underscores followed by a single `-` recursivly
 function Puller:_parse_encoding_trailer()
@@ -89,11 +80,82 @@ function Puller:_parse_decl()
     return event.Event.decl(v, encoding, standalone)
 end
 
+function Puller:parse_doctype()
+    self.buffer:advance(9)
+    self:_skip_whitespace()
+    local name = self:_eat_name()
+    self:_skip_whitespace()
+    local external_id, lit1, lit2
+    if self.buffer:starts_with('SYSTEM') or self.buffer:starts_with('PUBLIC') then
+        external_id, lit1, lit2 = self:parse_external_id()
+    end
+    self:_skip_whitespace()
+    local current_char = self.buffer:current_char()
+    if current_char ~= '>' and current_char ~= '[' then
+        return nil, 'Expected > or [ in doctype found ' .. current_char
+    end
+    self.buffer:advance(1)
+    local external_value = {}
+    if not lit1 and not lit2 then
+        external_value = nil
+        external_value = {lit1, lit2}
+    end
+    if lit1 then table.insert(external_value, lit1) end
+    if lit2 then table.insert(external_value, lit2) end
+    if current_char == '[' then
+        return event.Event.doctype_start(name, external_id, external_value)
+    end
+    return event.Event.empty_doctype(name, external_id, external_value)
+end
+
+function Puller:parse_comment()
+    self.buffer:advance(4)
+    local content = self.buffer:consume_until('-->')
+    self.buffer:advance(3)
+    return event.Event.comment(content)
+end
+
+function Puller:parse_pi()
+    self.buffer:advance(2)
+    local target = self:_eat_name()
+    self:_skip_whitespace()
+    local content = self.buffer:consume_until('?>')
+    if content == '' then
+        content = nil
+    end
+    return event.Event.pi(target, content)
+end
+
+function Puller:parse_external_id()
+    local id = self.buffer:advance(6)
+    self:_skip_whitespace()
+    local q = self:_parse_quote()
+    local lit1 = self.buffer:consume_while(function(s) return s ~= q end)
+    self:_parse_quote(q)
+    if id == 'SYSTEM' then
+        return id, lit1
+    else
+        self:_skip_whitespace()
+        local q2 = self:_parse_quote()
+        local lit2 = self.buffer:consume_while(function(s) return s ~= q end)
+        self:_parse_quote(q2)
+        return id, lit1, lit2
+    end
+end
+
+function Puller:_parse_quote(q)
+    return assert(self:eat(q or '["\']'), string.format('expected %s found: %s', q or '" or \'', self.buffer:current_char()))
+end
+
+function Puller:_parse_eq()
+    return assert(self:eat('='), 'expected equal sign')
+end
+
+
 function Puller:_eat_name()
     local at_start, len = self:_at_name_start()
     assert(at_start, 'Invalid name start')
     local ret = self.buffer:advance(len)
-    
     local at_continue, len = self:_at_name_cont()
     while at_continue do
         ret = ret .. self.buffer:advance(len)
@@ -208,6 +270,31 @@ function Puller:next()
         if self.buffer:starts_with('<%?xml') then
             return self:_parse_decl(self)
         else
+            return self:next()
+        end
+    elseif self.state == state.after_declaration then
+        if self.buffer:starts_with('<!DOCTYPE') then
+            local tok, err = self:parse_doctype()
+            if not tok then
+                return tok, err
+            end
+            if tok.ty == event.event_type.doctype then
+                self.state = state.doctype
+            elseif tok.ty == event.event_type.doctype_start then
+                self.state = state.after_doctype
+            else
+                return nil, 'Invalid doctype'
+            end
+            return tok, err
+        elseif self.buffer:starts_with('<!--') then
+            return self:parse_comment()
+        elseif self.buffer:starts_with('<?') then
+            if self.buffer:starts_with('<?xml') then
+                return nil, string.format('Invalid decl @ %s', self.current_idx) 
+            end
+            return self:parse_pi()
+        else
+            self.state = state.after_declaration
             return self:next()
         end
     end

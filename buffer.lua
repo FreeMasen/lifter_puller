@@ -21,6 +21,10 @@ function Buffer:at_end()
     return self.current_idx >= self.len
 end
 
+function Buffer:current_char()
+    return string.sub(self.stream, self.current_idx, self.current_idx)
+end
+
 ---Get the current byte
 function Buffer:current_byte()
     return string.byte(self.stream, self.current_idx, self.current_idx)
@@ -47,11 +51,11 @@ function Buffer:advance(ct)
         return nil, 'Would pass EOF'
     end
     local s
-    if ct == 1 then
-        s = string.sub(self.stream, self.current_idx, self.current_idx)
-    else
-        s = string.sub(self.stream, self.current_idx, new_idx)
-    end
+    s = string.sub(self.stream, self.current_idx, new_idx-1)
+    -- if ct == 1 then
+    --     s = string.sub(self.stream, self.current_idx, self.current_idx)
+    -- else
+    -- end
     self.current_idx = new_idx
     return s
 end
@@ -61,10 +65,12 @@ end
 ---@return boolean
 function Buffer:starts_with(s)
     local sub = string.sub(self.stream, self.current_idx)
-    return string.find(
+
+    local start, _stop = string.find(
         sub,
         string.format('^%s', s)
-    ) ~= nil
+    )
+    return start ~= nil
 end
 
 ---Consume the provided string, if the buffer isn't at
@@ -90,10 +96,24 @@ function Buffer:consume_while(f)
         if f(slice) then
             pos = pos + 1
         else
-            pos = pos - 1
-            return self:advance(pos - self.current_idx)
+            local ret = string.sub(self.stream, self.current_idx, pos - 1)
+            self:advance(pos - self.current_idx)
+            return ret
         end
     end
+end
+
+
+function Buffer:consume_until(s)
+    local slice = string.sub(self.stream, self.current_idx)
+
+    local start, stop = string.find(slice, s)
+    if start == nil then
+        return nil, 'pattern not found'
+    end
+    local ret = string.sub(slice, 1, start-1)
+    self.current_idx = start
+    return ret
 end
 
 --- Accumulate and mask the continue byte
