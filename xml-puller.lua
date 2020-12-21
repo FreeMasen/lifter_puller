@@ -123,6 +123,7 @@ function Puller:parse_pi()
     if content == '' then
         content = nil
     end
+    self.buffer:advance(2)
     return event.Event.pi(target, content)
 end
 
