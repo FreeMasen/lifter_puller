@@ -23,8 +23,6 @@ jobs:
       - name: test
         run: |
           luarocks install busted \
-          && luarocks install net-url \
-          && luarocks install luasocket \
           && luarocks install luacov \
           && busted -c \
           && bash <(curl -s https://codecov.io/bash)
