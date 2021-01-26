@@ -500,7 +500,7 @@ function Puller:next()
         end
     elseif self.state == state.after_doctype then
         if self.buffer:starts_with('<!--') then
-            return self.parse_comment()
+            return self:parse_comment()
         elseif self.buffer:starts_with('<!') then
             return nil, string.format('Unexpected token <! not followed by -- @ %s', self.current_idx)
         elseif self.buffer:starts_with('<') then
@@ -509,13 +509,13 @@ function Puller:next()
         end
     elseif self.state == state.elements then
         if self.buffer:starts_with('<!--') then
-            return self.parse_comment()
+            return self:parse_comment()
         elseif self.buffer:at_cdata_start() then
             return self:parse_cdata()
         elseif self.buffer:starts_with('<%?xml') then
             return nil, 'Invalid declaration @' .. self.current_idx
         elseif self.buffer:starts_with('<%?') then
-            return self.parse_pi()
+            return self:parse_pi()
         elseif self.buffer:starts_with('</') then
             if self.depth > 0 then
                 self.depth = self.depth - 1
@@ -549,7 +549,7 @@ function Puller:next()
         end
         return ev
     elseif self.state == state.after_elements then
-        if self.starts_with('<!--') then
+        if self.buffer:starts_with('<!--') then
             return self:parse_comment()
         elseif self.buffer:starts_with('<%?xml') then
             return nil, 'Invalid declaration @ ' .. self.current_idx
