@@ -65,7 +65,6 @@ end
 ---@return boolean
 function Buffer:starts_with(s)
     local sub = string.sub(self.stream, self.current_idx)
-
     local start, _stop = string.find(
         sub,
         string.format('^%s', s)
@@ -73,6 +72,15 @@ function Buffer:starts_with(s)
     return start ~= nil
 end
 
+
+function Buffer:at_cdata_start()
+    local slice = string.sub(
+        self.stream,
+        self.current_idx,
+        self.current_idx + #'<![CDATA')
+    return 
+        slice == '<![CDATA['
+end
 ---Consume the provided string, if the buffer isn't at
 ---the current string will return nil, string
 ---@param s string The string to match
@@ -112,7 +120,7 @@ function Buffer:consume_until(s)
         return nil, 'pattern not found'
     end
     local ret = string.sub(slice, 1, start-1)
-    self.current_idx = start
+    self.current_idx = self.current_idx + #ret
     return ret
 end
 
@@ -153,6 +161,7 @@ end
 function Buffer:skip_whitespace()
     local whitespace = string.match(self.stream, '^%s*', self.current_idx)
     self:advance(#whitespace)
+    return #whitespace > 0
 end
 
 return Buffer

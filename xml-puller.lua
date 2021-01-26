@@ -127,7 +127,141 @@ function Puller:parse_pi()
     return event.Event.pi(target, content)
 end
 
+function Puller:parse_entity_decl()
+    self:_advancebuffer(8)
+    self:_skip_whitespace()
+    local is_ge = true
+    if self.buffer:starts_with('%%') then
+        self:_advancebuffer(1)
+        self:_skip_whitespace()
+        is_ge = false
+    end
+    local name = self:_eat_name()
+    self:_skip_whitespace()
+    local def = self:parse_entity_def(is_ge)
+    self:_skip_whitespace()
+    if not self.buffer:starts_with('>') then
+        return nil, string.format('expected > found %s', self.buffer:current_char())
+    end
+    self:_advancebuffer(1) -- >
+    return event.Event.entity_declaration(name, def.ext_id, def.ext_val, def.ndata)
+end
+
+function Puller:parse_entity_def(is_ge)
+    local c = self.buffer:current_char()
+    if c == '"' or c == '\'' then
+        self:_parse_quote(c)
+        
+        local contents = self.buffer:consume_while(function (ch) return ch ~= c end)
+        self:_parse_quote(c)
+        return {
+            ext_val = contents,
+        }
+    elseif c == 'S' or c == 'P' then
+        local id, lit1, lit2 = self:parse_external_id()
+        
+        if id == nil then
+            return nil, lit1 --error here
+        end
+        local ret = {
+            ext_id = id,
+            ext_val = {lit1, lit2},
+            ndata = nil,
+        }
+        if is_ge then
+            self:_skip_whitespace()
+            if self.buffer:starts_with("NDATA") then
+                self:_advancebuffer(5)
+                self:_skip_whitespace()
+                local name = self:_eat_name()
+                ret.ndata = name
+            end
+        end
+        return ret
+    else
+        return nil, string.format('Expected quote or SYSTEM or PUBLIC found "%s"', self.buffer:current_char())
+    end
+end
+
+function Puller:parse_element_start()
+    self.buffer:advance(1) -- <
+    local prefix, name = self:_eat_qname()
+    if prefix == nil then
+        return nil, name --error here
+    end
+    if name == nil then
+        return event.Event.open_tag(nil, prefix)
+    end
+    return event.Event.open_tag(prefix, name)
+end
+
+function Puller:parse_close_element()
+    self:_advancebuffer(2) -- </
+    local prefix, name = self:_eat_qname()
+    if prefix == nil then
+        return nil, name --error
+    end
+    self:_skip_whitespace()
+    if not self:eat('>') then
+        return nil, string.format('expected `>` found %s', self.buffer:current_char())
+    end
+    if name == nil then
+        return event.Event.close_tag(nil, prefix)
+    end
+    return event.Event.close_tag(prefix, name)
+end
+
+function Puller:parse_attribute()
+    if self.buffer:starts_with('/>') then
+        self:_advancebuffer(2)
+        return event.Event.tag_end(true)
+    elseif self.buffer:starts_with('>') then
+        self:_advancebuffer(1)
+        return event.Event.tag_end(false)
+    end
+    local prefix, name = self:_eat_qname()
+    if prefix == nil then
+        return nil, name --error here
+    end
+    local eq = self:eat('=')
+    if eq == nil then
+        return nil, string.format('expected = found %s', self.buffer:current_char())
+    end
+    local quote = self:_parse_quote()
+    local value = self.buffer:consume_while(function (c) return c ~= quote and c ~= '<' end)
+    if not self:_parse_quote(quote) then
+        return nil, string.format('Invalid attribute value, expecting %s found %s', quote, self.buffer:current_char())
+    end
+    if name == nil then
+        return event.Event.attr(
+            nil, name, value
+        )
+    end
+    return event.Event.attr(prefix, name, value)
+end
+
+function Puller:parse_text()
+    local text, err = self.buffer:consume_until('<')
+    if text == nil then
+        return nil, err
+    end
+    if string.find(text, "]]>", nil, true) then
+        return nil, 'Invalid text node, cannot contain `]]>`'
+    end
+    return text
+end
+
+function Puller:parse_cdata()
+    self:_advancebuffer(9) --<![CDATA[
+    local text = self.buffer:consume_until(']]>')
+    self:_advancebuffer(3)
+    return event.Event.cdata(text)
+end
+
 function Puller:parse_external_id()
+    if not self.buffer:starts_with('SYSTEM') and not self.buffer:starts_with('PUBLIC') then
+        return nil, 'Invalid external id, expected SYSTEM or PUBLIC'
+    end
     local id = self.buffer:advance(6)
     self:_skip_whitespace()
     local q = self:_parse_quote()
@@ -145,7 +279,10 @@ function Puller:parse_external_id()
 end
 
 function Puller:_parse_quote(q)
-    return assert(self:eat(q or '["\']'), string.format('expected %s found: %s', q or '" or \'', self.buffer:current_char()))
+    local q = q or '["\']'
+    local ret = self:eat(q)
+    assert(ret, string.format('expected %s found: %s', q or '" or \'', self.buffer:current_char()))
+    return ret
 end
 
 function Puller:_parse_eq()
@@ -155,7 +292,10 @@ end
 
 function Puller:_eat_name()
     local at_start, len = self:_at_name_start()
-    assert(at_start, 'Invalid name start')
+    if not at_start then
+        print(debug.traceback())
+    end
+    assert(at_start, string.format('Invalid name start `%s`', string.sub(self.buffer.stream, self.buffer.current_idx)))
     local ret = self.buffer:advance(len)
     local at_continue, len = self:_at_name_cont()
     while at_continue do
@@ -163,6 +303,19 @@ function Puller:_eat_name()
         at_continue, len = self:_at_name_cont()
     end
     return ret
+end
+
+function Puller:_eat_qname()
+    local first = self:_eat_name()
+    local second
+    if self.buffer:starts_with(':') then
+        self:_advancebuffer(1)
+        second = self:_eat_name()
+    end
+    if self.buffer:starts_with(':') then
+        return nil, string.format('Invalid name, only one prefix allowed @ %s', self.current_idx)
+    end
+    return first, second
 end
 
 function Puller:_at_name_start()
@@ -236,7 +389,7 @@ function Puller:_advancebuffer(ct)
 end
 
 function Puller:_skip_whitespace()
-    self.buffer:skip_whitespace()
+    return self.buffer:skip_whitespace()
 end
 
 function Puller:_complete_string(quote)
@@ -254,7 +407,7 @@ function Puller:_next_block(target_end)
     -- as the terminator of the block
     local next_char = string.sub(self.buffer, 1, 2);
     if next_char == '"' or next_char == '\'' then
-        local s = self._complete_string(next_char)
+        local s = self:_complete_string(next_char)
         self:_advancebuffer(#s)
         return s
     else
@@ -264,8 +417,23 @@ function Puller:_next_block(target_end)
     end
 end
 
+---Consume until the next `>`
+---@return boolean
+---@return string|nil
+function Puller:_consume_decl()
+    local _, err = self.buffer:consume_until('>')
+    if err ~= nil then
+        return false, err
+    end
+    self:_advancebuffer(1)
+    return true
+end
+
 function Puller:next()
-    self:_skip_whitespace()
+    --- xml decl has to be the absolute first thing in the document
+    if self:_skip_whitespace() and self.state == state.declaration then
+        self.state = state.after_declaration
+    end
     if self.state == state.declaration then
         self.state = state.after_declaration
         if self.buffer:starts_with('<%?xml') then
@@ -280,18 +448,18 @@ function Puller:next()
                 return tok, err
             end
             if tok.ty == event.event_type.doctype then
-                self.state = state.doctype
-            elseif tok.ty == event.event_type.doctype_start then
                 self.state = state.after_doctype
+            elseif tok.ty == event.event_type.doctype_start then
+                self.state = state.doctype
             else
                 return nil, 'Invalid doctype'
             end
             return tok, err
         elseif self.buffer:starts_with('<!--') then
             return self:parse_comment()
-        elseif self.buffer:starts_with('<?') then
+        elseif self.buffer:starts_with('<%?') then
             if self.buffer:starts_with('<?xml') then
-                return nil, string.format('Invalid decl @ %s', self.current_idx) 
+                return nil, string.format('Invalid decl @ %s', self.current_idx)
             end
             return self:parse_pi()
         else
@@ -300,20 +468,96 @@ function Puller:next()
         end
     elseif self.state == state.doctype then
         if self.buffer:starts_with('<!ENTITY') then
-            
+            return self:parse_entity_decl()
         elseif self.buffer:starts_with('<!--') then
-        
-        elseif self.buffer:starts_with('<?') then
+            return self:parse_comment()
+        elseif self.buffer:starts_with('<%?') then
+            if self.buffer:starts_with('<%?xml') then
+                return nil, string.format('Invalid doctype @ %s', self.current_idx)
+            else
+                self:parse_pi()
+            end
         elseif self.buffer:starts_with(']') then
+            self:_advancebuffer(1)
+            self:_skip_whitespace()
+            local current = self.buffer:current_char()
+            if current == '>' then
+                self.state = state.after_doctype
+                self:_advancebuffer(1)
+                return event.Event.doctype_end()
+            elseif current == nil then
+                return nil, 'Unexpected EOF'
+            else
+            end
+        elseif self.buffer:starts_wth("<!ELEMENT") or self.buffer:starts_with("<!ATTLIST") or self.buffer:starts_with("<!NOTATION") then
+            --TODO: these should be usable?
+            local success, err = self:_consume_decl()
+            if success then
+                return self:next()
+            else
+                return nil, err
+            end
         end
     elseif self.state == state.after_doctype then
-
+        if self.buffer:starts_with('<!--') then
+            return self.parse_comment()
+        elseif self.buffer:starts_with('<!') then
+            return nil, string.format('Unexpected token <! not followed by -- @ %s', self.current_idx)
+        elseif self.buffer:starts_with('<') then
+            self.state = state.attributes
+            return self:parse_element_start()
+        end
     elseif self.state == state.elements then
-
+        if self.buffer:starts_with('<!--') then
+            return self.parse_comment()
+        elseif self.buffer:at_cdata_start() then
+            return self:parse_cdata()
+        elseif self.buffer:starts_with('<%?xml') then
+            return nil, 'Invalid declaration @' .. self.current_idx
+        elseif self.buffer:starts_with('<%?') then
+            return self.parse_pi()
+        elseif self.buffer:starts_with('</') then
+            if self.depth > 0 then
+                self.depth = self.depth - 1
+            end
+            if self.depth == 0 and not self.fragment_parsing then
+                self.state = state.after_elements
+            else
+                self.state = state.elements
+            end
+            return self:parse_close_element()
+        elseif self.buffer:starts_with('<') then
+            self.state = state.attributes
+            return self:parse_element_start()
+        else
+            return self:parse_text()
+        end
     elseif self.state == state.attributes then
-
+        local ev, err = self:parse_attribute()
+        if ev == nil then
+            return nil, err
+        end
+        if ev.ty == event.event_type.tag_end then
+            if not ev.is_empty then
+                self.depth = self.depth + 1
+                if self.depth == 0 and not self.fragment_parsing then
+                    self.state = state.after_elements
+                else
+                    self.state = state.elements
+                end
+            end
+        end
+        return ev
     elseif self.state == state.after_elements then
-
+        if self.starts_with('<!--') then
+            return self:parse_comment()
+        elseif self.buffer:starts_with('<%?xml') then
+            return nil, 'Invalid declaration @ ' .. self.current_idx
+        elseif self.buffer:starts_with('<?') then
+            return self:parse_pi()
+        else
+            return nil, string.format('Unknown token: %s', self.buffer:current_char())
+        end
     else
         return nil
     end
