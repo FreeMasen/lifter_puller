@@ -295,9 +295,27 @@ function Puller:next()
             end
             return self:parse_pi()
         else
-            self.state = state.after_declaration
+            self.state = state.after_doctype
             return self:next()
         end
+    elseif self.state == state.doctype then
+        if self.buffer:starts_with('<!ENTITY') then
+            
+        elseif self.buffer:starts_with('<!--') then
+        
+        elseif self.buffer:starts_with('<?') then
+        elseif self.buffer:starts_with(']') then
+        end
+    elseif self.state == state.after_doctype then
+
+    elseif self.state == state.elements then
+
+    elseif self.state == state.attributes then
+
+    elseif self.state == state.after_elements then
+
+    else
+        return nil
     end
 end
 
