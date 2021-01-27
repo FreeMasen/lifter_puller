@@ -30,7 +30,7 @@ function Puller:_parse_encoding_trailer()
 end
 
 function Puller:_parse_decl()
-    self:_advancebuffer(6)
+    self:_advancebuffer(6) -- <?xml
     self:_skip_whitespace()
     if not self:eat('version') then
         return nil, 'expected `version`'
@@ -128,11 +128,11 @@ function Puller:parse_pi()
 end
 
 function Puller:parse_entity_decl()
-    self:_advancebuffer(8)
+    self:_advancebuffer(8) -- <!ENTITY
     self:_skip_whitespace()
     local is_ge = true
     if self.buffer:starts_with('%%') then
-        self:_advancebuffer(1)
+        self:_advancebuffer(1) -- %
         self:_skip_whitespace()
         is_ge = false
     end
@@ -171,7 +171,7 @@ function Puller:parse_entity_def(is_ge)
         if is_ge then
             self:_skip_whitespace()
             if self.buffer:starts_with("NDATA") then
-                self:_advancebuffer(5)
+                self:_advancebuffer(5) -- NDATA
                 self:_skip_whitespace()
                 local name = self:_eat_name()
                 ret.ndata = name
@@ -213,10 +213,10 @@ end
 
 function Puller:parse_attribute()
     if self.buffer:starts_with('/>') then
-        self:_advancebuffer(2)
+        self:_advancebuffer(2) -- />
         return event.Event.tag_end(true)
     elseif self.buffer:starts_with('>') then
-        self:_advancebuffer(1)
+        self:_advancebuffer(1) -- >
         return event.Event.tag_end(false)
     end
     local prefix, name = self:_eat_qname()
@@ -234,7 +234,7 @@ function Puller:parse_attribute()
     end
     if name == nil then
         return event.Event.attr(
-            nil, name, value
+            nil, prefix, value
         )
     end
     return event.Event.attr(prefix, name, value)
@@ -248,13 +248,13 @@ function Puller:parse_text()
     if string.find(text, "]]>", nil, true) then
         return nil, 'Invalid text node, cannot contain `]]>`'
     end
-    return text
+    return event.Event.text(text)
 end
 
 function Puller:parse_cdata()
     self:_advancebuffer(9) --<![CDATA[
     local text = self.buffer:consume_until(']]>')
-    self:_advancebuffer(3)
+    self:_advancebuffer(3) --]]>
     return event.Event.cdata(text)
 end
 
@@ -292,9 +292,6 @@ end
 
 function Puller:_eat_name()
     local at_start, len = self:_at_name_start()
-    if not at_start then
-        print(debug.traceback())
-    end
     assert(at_start, string.format('Invalid name start `%s`', string.sub(self.buffer.stream, self.buffer.current_idx)))
     local ret = self.buffer:advance(len)
     local at_continue, len = self:_at_name_cont()
@@ -309,7 +306,7 @@ function Puller:_eat_qname()
     local first = self:_eat_name()
     local second
     if self.buffer:starts_with(':') then
-        self:_advancebuffer(1)
+        self:_advancebuffer(1) -- :
         second = self:_eat_name()
     end
     if self.buffer:starts_with(':') then
@@ -340,10 +337,13 @@ function Puller:_at_name_start()
 end
 
 function Puller:_at_name_cont()
-    if self.buffer:starts_with('[a-zA-Z0-9:_%-%.]') then
+    if self.buffer:starts_with('[a-zA-Z0-9_%-%.]') then
         return true, 1
     end
     local ch, len = self.buffer:next_utf8_int()
+    if ch < 128 then
+        return false
+    end
     return (ch == 0x0000B7
         or (ch >= 0x0000C0 and ch <= 0x0000D6)
         or (ch >= 0x0000D8 and ch <= 0x0000F6)
@@ -359,10 +359,6 @@ function Puller:_at_name_cont()
         or (ch >= 0x00F900 and ch <= 0x00FDCF)
         or (ch >= 0x00FDF0 and ch <= 0x00FFFD)
         or (ch >= 0x010000 and ch <= 0x0EFFFF)), len
-end
-
-function Puller:_parse_name_cont()
-    return assert(self:eat('[]+'))
 end
 
 function Puller.new(buffer, buffer_is_fragment)
@@ -392,31 +388,6 @@ function Puller:_skip_whitespace()
     return self.buffer:skip_whitespace()
 end
 
-function Puller:_complete_string(quote)
-    local after = string.sub(self.buffer, 2)
-    local _, end_idx = string.find(after, quote)
-    return string.sub(self.buffer, 1, end_idx)
-end
-
----Fetch the next full block of non-whitespace
-function Puller:_next_block(target_end)
-    target_end = target_end or "^[^%s]+"
-    -- Look ahead 1 char to see if we are starting
-    -- a string because that would mean we need to look
-    -- for the companion quote symbol and not whitespace
-    -- as the terminator of the block
-    local next_char = string.sub(self.buffer, 1, 2);
-    if next_char == '"' or next_char == '\'' then
-        local s = self:_complete_string(next_char)
-        self:_advancebuffer(#s)
-        return s
-    else
-        local s = string.match(self.buffer, "^[^%s]+")
-        self:_advancebuffer(#s)
-        return s
-    end
-end
-
 ---Consume until the next `>`
 ---@return boolean
 ---@return string|nil
@@ -425,7 +396,7 @@ function Puller:_consume_decl()
     if err ~= nil then
         return false, err
     end
-    self:_advancebuffer(1)
+    self:_advancebuffer(1) -- >
     return true
 end
 
@@ -478,12 +449,12 @@ function Puller:next()
                 self:parse_pi()
             end
         elseif self.buffer:starts_with(']') then
-            self:_advancebuffer(1)
+            self:_advancebuffer(1) -- ]
             self:_skip_whitespace()
             local current = self.buffer:current_char()
             if current == '>' then
                 self.state = state.after_doctype
-                self:_advancebuffer(1)
+                self:_advancebuffer(1) -- >
                 return event.Event.doctype_end()
             elseif current == nil then
                 return nil, 'Unexpected EOF'

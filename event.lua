@@ -1,4 +1,4 @@
-
+--- Event Type "enum"
 local event_type = {
     declaration = 'Declaration',
     open_tag = 'OpenTag',
@@ -13,10 +13,25 @@ local event_type = {
     entity_declaration = 'EntityDeclaration',
     doctype_end = 'DocTypeEnd',
     cdata = "CData",
+    text = "Text",
     eof = "EOF",
 }
 
 ---@class Event
+---@field ty string
+---@field prefix string|nil
+---@field name string|nil
+---@field version string|nil
+---@field encoding string|nil
+---@field standalone boolean|nil
+---@field target string|nil
+---@field content string|nil
+---@field text string|nil
+---@field external_id string|nil
+---@field external_value string[2]|nil
+---@field ndata string|nil
+---@field value string|nil
+---@field is_empty boolean|nil
 local Event = {}
 
 Event.__index = Event
@@ -157,7 +172,8 @@ function Event.close_tag(prefix, name)
     }
 end
 
----
+--- >
+--- /> (empty)
 ---@param is_empty boolean
 ---@return Event
 function Event.tag_end(is_empty)
@@ -167,13 +183,23 @@ function Event.tag_end(is_empty)
     }
 end
 
----
+---<![CDATA[text]]>
 ---@param text string
 ---@return Event
 function Event.cdata(text)
     return _create{
         ty = event_type.cdata,
         text = text,
+    }
+end
+
+--->text</
+---@param text string
+---@return Event
+function Event.text(text)
+    return _create{
+        ty = event_type.text,
+        text = text
     }
 end
 

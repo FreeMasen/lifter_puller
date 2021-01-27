@@ -1,3 +1,5 @@
 .vscode
 *.rock
 lua_modules
+*.out
+*.log
