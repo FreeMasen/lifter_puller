@@ -1,1 +1,0 @@
-for (let i = 0x010000; i < 0x0EFFFF; i++) console.log(String.fromCodePoint(i))
