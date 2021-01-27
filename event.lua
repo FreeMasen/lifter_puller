@@ -28,7 +28,7 @@ local event_type = {
 ---@field content string|nil
 ---@field text string|nil
 ---@field external_id string|nil
----@field external_value string[2]|nil
+---@field external_value string[2]|string|nil
 ---@field ndata string|nil
 ---@field value string|nil
 ---@field is_empty boolean|nil
