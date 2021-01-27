@@ -1,5 +1,5 @@
-local event = require 'event'
-local Buffer = require 'buffer'
+local event = require 'lifter_puller.event'
+local Buffer = require 'lifter_puller.buffer'
 
 
 local Puller = {}
@@ -401,6 +401,9 @@ function Puller:_consume_decl()
 end
 
 function Puller:next()
+    if self.buffer:at_end() then
+        return event.Event.eof()
+    end
     --- xml decl has to be the absolute first thing in the document
     if self:_skip_whitespace() and self.state == state.declaration then
         self.state = state.after_declaration
@@ -410,6 +413,7 @@ function Puller:next()
         if self.buffer:starts_with('<%?xml') then
             return self:_parse_decl(self)
         else
+            
             return self:next()
         end
     elseif self.state == state.after_declaration then

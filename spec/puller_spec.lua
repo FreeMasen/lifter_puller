@@ -1,5 +1,5 @@
-local puller = require 'xml-puller'
-local event = require 'event'
+local puller = require 'lifter_puller.puller'
+local event = require 'lifter_puller.event'
 
 
 function _assert(test, ...)

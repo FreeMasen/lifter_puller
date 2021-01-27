@@ -1,6 +1,5 @@
-local Buffer = require 'buffer'
+local Buffer = require 'lifter_puller.buffer'
 local char_maps = require "spec.char_maps"
-local buffer = require "buffer"
 
 describe('Buffer', function ()
     describe('utf-8', function ()

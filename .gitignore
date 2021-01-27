@@ -2,4 +2,8 @@
 *.rock
 lua_modules
 *.out
-*.log
+*.log/luarocks
+/lua
+/lua_modules
+/.luarocks
+/luarocks
