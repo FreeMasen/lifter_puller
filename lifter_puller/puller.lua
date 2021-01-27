@@ -83,7 +83,10 @@ end
 function Puller:parse_doctype()
     self.buffer:advance(9)
     self:_skip_whitespace()
-    local name = self:_eat_name()
+    local name, err = self:_eat_name()
+    if not name then
+        return nil, err
+    end
     self:_skip_whitespace()
     local external_id, lit1, lit2
     if self.buffer:starts_with('SYSTEM') or self.buffer:starts_with('PUBLIC') then
@@ -117,7 +120,10 @@ end
 
 function Puller:parse_pi()
     self.buffer:advance(2)
-    local target = self:_eat_name()
+    local target, err = self:_eat_name()
+    if not target then
+        return nil, err
+    end
     self:_skip_whitespace()
     local content = self.buffer:consume_until('?>')
     if content == '' then
@@ -136,7 +142,10 @@ function Puller:parse_entity_decl()
         self:_skip_whitespace()
         is_ge = false
     end
-    local name = self:_eat_name()
+    local name, err = self:_eat_name()
+    if not name then
+        return nil, err
+    end
     self:_skip_whitespace()
     local def = self:parse_entity_def(is_ge)
     self:_skip_whitespace()
@@ -173,7 +182,10 @@ function Puller:parse_entity_def(is_ge)
             if self.buffer:starts_with("NDATA") then
                 self:_advancebuffer(5) -- NDATA
                 self:_skip_whitespace()
-                local name = self:_eat_name()
+                local name, err = self:_eat_name()
+                if not name then
+                    return nil, err
+                end
                 ret.ndata = name
             end
         end
@@ -279,20 +291,27 @@ function Puller:parse_external_id()
 end
 
 function Puller:_parse_quote(q)
-    local q = q or '["\']'
+    q = q or '["\']'
     local ret = self:eat(q)
-    assert(ret, string.format('expected %s found: %s', q or '" or \'', self.buffer:current_char()))
+    if ret == nil then
+        return nil,  string.format('expected %s found: %s', q or '" or \'', self.buffer:current_char())
+    end
     return ret
 end
 
 function Puller:_parse_eq()
-    return assert(self:eat('='), 'expected equal sign')
+    if not self:eat('=') then
+        return false, string.format('expected equal sign found %s', self.buffer:current_char())
+    end
+    return true
 end
 
 
 function Puller:_eat_name()
     local at_start, len = self:_at_name_start()
-    assert(at_start, string.format('Invalid name start `%s`', string.sub(self.buffer.stream, self.buffer.current_idx)))
+    if not at_start then
+        return nil, string.format('Invalid name start `%s`', string.sub(self.buffer.stream, self.buffer.current_idx))
+    end
     local ret = self.buffer:advance(len)
     local at_continue, len = self:_at_name_cont()
     while at_continue do
@@ -303,11 +322,17 @@ function Puller:_eat_name()
 end
 
 function Puller:_eat_qname()
-    local first = self:_eat_name()
+    local first, err = self:_eat_name()
+    if not first then
+        return nil, err
+    end
     local second
     if self.buffer:starts_with(':') then
         self:_advancebuffer(1) -- :
-        second = self:_eat_name()
+        second, err = self:_eat_name()
+        if not second then
+            return nil, err
+        end
     end
     if self.buffer:starts_with(':') then
         return nil, string.format('Invalid name, only one prefix allowed @ %s', self.current_idx)
