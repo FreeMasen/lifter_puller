@@ -8,7 +8,8 @@ description = {
    summary = "An xml pull parser in pure lua",
    detailed = "An xml pull parser in pure lua",
    homepage = "https://github.com/FreeMasen/lifter_puller",
-   license = "MIT"
+   license = "MIT",
+   labels = { "xml", "parsing" }
 }
 build = {
    type = "builtin",
