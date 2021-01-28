@@ -1,3 +1,4 @@
+---@lang xml
 local xml = [[<?xml version="1.1" encoding="UTF-8"?>
 <!-- List of addresses -->
 <addresses>
@@ -76,7 +77,7 @@ local function extract_node_info(p)
     local attrs = {}
     while true do
         local attr_or_end = assert(p:next())
-        -- If we are at </name> then we want to stop looking for attributes
+        -- If we are at > then we want to stop looking for attributes
         if attr_or_end.ty == lftr_pllr.event_type.tag_end then
             break
         end

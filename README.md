@@ -2,16 +2,49 @@
 
 An xml pull parser in pure lua
 
-## Usage
+## About
 
-### Installation
+An [XML Pull Parser](http://www.extreme.indiana.edu/xgws/xsoap/xpp/) is a method for parsing XML in an ergonomic
+and flexible way. Since XML is so flexible, this kind of parser is incredibly useful for building protocol parsers
+on top of. The basic structure for any pull parser is driven by the user, each time the user wants to move forward
+in the document they will "pull out" the next event. An event has a type and properties dependant on that type. For
+example an XML node with attributes like `<a attr="thing" />` would consist of 3 events. 
+
+1. `{ ty = 'OpenTag', name = 'a' }`
+1. `{ ty = 'Attribute', name = 'attr', value = 'thing' }`
+1. `{ ty = 'TagEnd', is_empty = true }`
+
+This format provides the flexibility to build protocol specific parsing on top
+of this Pull Parser. The [Below example](#Puller) should provide an idea of
+what protocol specific parsing might look like.
+
+## Installation
 
 ```sh$
 lua rocks install lifter_puller
 ```
-### Parse some xml
+## Usage
+
+### Puller
+
+The protocol for this example is defined as the following
+
+- The top level node should be a list of addressed named `<addresses>`
+- Each child node of `<addresses>` should be an `<address>` node
+- An `<address>` node should have the following child nodes in the following order
+    - `<name>` required
+    - `<street-address>` required
+    - `<street-address2>` optional
+    - `<city>` required
+    - `<state>` optional
+    - `<province>` optional
+    - `<postal-code>` required
+        - `components` attribute should define the parts of the postal code
+        - `sep` should provide the separator used to break the parts in `components` up
+    - `country` required
 
 ```lua
+---@lang xml
 local xml = [[<?xml version="1.1" encoding="UTF-8"?>
 <!-- List of addresses -->
 <addresses>
@@ -90,7 +123,7 @@ local function extract_node_info(p)
     local attrs = {}
     while true do
         local attr_or_end = assert(p:next())
-        -- If we are at </name> then we want to stop looking for attributes
+        -- If we are at > then we want to stop looking for attributes
         if attr_or_end.ty == lftr_pllr.event_type.tag_end then
             break
         end
@@ -266,4 +299,28 @@ David Rose
 Orangeville ON L9W 2Z2
 CANADA
 -----------
+```
+
+### Iterator
+
+This library also provides an iterator interface as a function named `events`.
+
+Here is an example of how this works:
+
+```lua
+local events = require 'lifter_puller.init'.events
+
+for ev in events('<?xml version="1.1" encoding="UTF-8"?><p>hi</p>') do
+    print(ev.ty)
+end
+```
+
+When run would print the following:
+
+```sh
+Declaration
+OpenTag
+TagEnd
+Text
+CloseTag
 ```
