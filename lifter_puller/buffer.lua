@@ -164,4 +164,8 @@ function Buffer:skip_whitespace()
     return #whitespace > 0
 end
 
+function Buffer:at_space()
+    return string.find(self.stream, '^%s', self.current_idx) ~= nil
+end
+
 return Buffer

@@ -224,12 +224,21 @@ function Puller:parse_close_element()
 end
 
 function Puller:parse_attribute()
+    local has_space = self.buffer:skip_whitespace()
     if self.buffer:starts_with('/>') then
         self:_advancebuffer(2) -- />
         return event.Event.tag_end(true)
     elseif self.buffer:starts_with('>') then
         self:_advancebuffer(1) -- >
         return event.Event.tag_end(false)
+    end
+    -- If we are not at the end of an open tag, we expected
+    if not has_space then
+        if self.buffer:at_end() then
+            return nil, 'Unexpected EOF'
+        else
+            return nil, string.format('Expected space found `%s`', self.buffer:current_char())
+        end
     end
     local prefix, name = self:_eat_qname()
     if prefix == nil then
@@ -259,6 +268,9 @@ function Puller:parse_text()
     end
     if string.find(text, "]]>", nil, true) then
         return nil, 'Invalid text node, cannot contain `]]>`'
+    end
+    if string.find(text, '[^%s]') == nil then
+        return self:next()
     end
     return event.Event.text(text)
 end
@@ -429,16 +441,11 @@ function Puller:next()
     if self.buffer:at_end() then
         return event.Event.eof()
     end
-    --- xml decl has to be the absolute first thing in the document
-    if self:_skip_whitespace() and self.state == state.declaration then
-        self.state = state.after_declaration
-    end
     if self.state == state.declaration then
         self.state = state.after_declaration
         if self.buffer:starts_with('<%?xml') then
             return self:_parse_decl(self)
         else
-            
             return self:next()
         end
     elseif self.state == state.after_declaration then
@@ -462,6 +469,9 @@ function Puller:next()
                 return nil, string.format('Invalid decl @ %s', self.current_idx)
             end
             return self:parse_pi()
+        elseif self.buffer:at_space() then
+            self.buffer:skip_whitespace()
+            return self:next()
         else
             self.state = state.after_doctype
             return self:next()
@@ -488,7 +498,11 @@ function Puller:next()
             elseif current == nil then
                 return nil, 'Unexpected EOF'
             else
+                return nil, string.format('Invalid character in doctype expected > found %s', current)
             end
+        elseif self.buffer:at_space() then
+            self.buffer:skip_whitespace()
+            return self:next()
         elseif self.buffer:starts_wth("<!ELEMENT") or self.buffer:starts_with("<!ATTLIST") or self.buffer:starts_with("<!NOTATION") then
             --TODO: these should be usable?
             local success, err = self:_consume_decl()
@@ -506,6 +520,11 @@ function Puller:next()
         elseif self.buffer:starts_with('<') then
             self.state = state.attributes
             return self:parse_element_start()
+        elseif self.buffer:at_space() then
+            self.buffer:skip_whitespace()
+            return self:next()
+        else
+            return nil, string.format('Invalid element, expected < found %s', self.buffer:current_char())
         end
     elseif self.state == state.elements then
         if self.buffer:starts_with('<!--') then
@@ -555,11 +574,14 @@ function Puller:next()
             return nil, 'Invalid declaration @ ' .. self.current_idx
         elseif self.buffer:starts_with('<?') then
             return self:parse_pi()
+        elseif self.buffer:at_space() then
+            self.buffer:skip_whitespace()
+            return self:next()
         else
             return nil, string.format('Unknown token: %s', self.buffer:current_char())
         end
     else
-        return nil
+        return nil, string.format('Invalid parser state `%s`', self.state)
     end
 end
 
