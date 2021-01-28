@@ -20,9 +20,6 @@ local xml = [[<?xml version="1.1" encoding="UTF-8"?>
         <street-address>
             187 North Gower Street
         </street-address>
-        <street-address2>
-            Kings Cross
-        </street-address2>
         <city>London</city>
         <postal-code components="outcode,incode" sep=" ">
             NW1 2NJ
@@ -32,7 +29,7 @@ local xml = [[<?xml version="1.1" encoding="UTF-8"?>
     <address>
         <name>Balki Bartokomous</name>
         <street-address>
-            1100 S Main St
+            1100 S Main St.
         </street-address>
         <street-address2>
             Apt 209
@@ -57,12 +54,12 @@ local xml = [[<?xml version="1.1" encoding="UTF-8"?>
 
 local lftr_pllr = require 'lifter_puller'
 
-local puller = lftr_pllr.Puller.new(xml)
 
-local decl = puller:next()
-print(string.format('XML Declaration: version = %s, encoding = %s', decl.version, decl.encoding))
-
-
+---Check two pieces of data for equality, raising an error if not equal
+---similar to assert(lhs == rhs) but with a built in error message
+---@param lhs any
+---@param rhs any
+---@return boolean
 local function assert_eq(lhs, rhs)
     if lhs == rhs then
         return true
@@ -70,26 +67,45 @@ local function assert_eq(lhs, rhs)
     error(string.format('%s ~= %s', lhs, rhs), 2)
 end
 
+local puller = lftr_pllr.Puller.new(xml)
+
+-- Our first event is going to be the xml declaration
+local decl = puller:next()
+assert_eq(decl.ty, lftr_pllr.event_type.declaration)
+assert_eq(decl.version, '1.1')
+assert_eq(decl.encoding, 'UTF-8')
+
+-- Our second event is going to be a comment
 local comment = puller:next()
 assert_eq(comment.ty, lftr_pllr.event_type.comment)
 
+---Extract the contents of a node into a table
+---@param p lftr_pllr.Puller
+---@return table
 local function extract_node_info(p)
     local node_start = assert(p:next())
+    -- first make sure we are at an open tag like <name
     assert_eq(node_start.ty, lftr_pllr.event_type.open_tag)
     local name = node_start.name
     local attrs = {}
     while true do
         local attr_or_end = assert(p:next())
+        -- If we are at </name> then we want to stop looking for attributes
         if attr_or_end.ty == lftr_pllr.event_type.tag_end then
             break
         end
         assert_eq(attr_or_end.ty, lftr_pllr.event_type.attribute)
+        -- Put the name="value" into the table of attributes
         attrs[attr_or_end.name] = attr_or_end.value
     end
     local text_node = assert(p:next())
+    -- All of our nodes have text inside
     assert_eq(text_node.ty, lftr_pllr.event_type.text)
+    -- trim the leading/trailing whitespace
     local text = string.match(text_node.text, "^%s*(.-)%s*$")
     local node_end = assert(p:next())
+    -- We should now be at a close tag, and that close tag should
+    -- have the same name we started with
     assert_eq(node_end.ty, lftr_pllr.event_type.close_tag)
     assert_eq(node_end.name, name)
     return {
@@ -99,6 +115,10 @@ local function extract_node_info(p)
     }
 end
 
+---Split a string on a seperator into a list of strings
+---@param s string The string to split
+---@param sep string|nil The seperator to use (%s if not provided)
+---@return string[]
 local function split_string(s, sep)
     sep = sep or '%s'
     local ret = {}
@@ -108,7 +128,20 @@ local function split_string(s, sep)
     return ret
 end
 
+---Extract the postal code components and their values from the attributes
+--- on a <postal_code> elements
+---@param text string The contents of the node
+---@param parts_attr string The value from the `components` attribute
+---@param sep_attr string The value from the `sep` attribute
+---@return PostalCode
 local function extract_postal_code_names(text, parts_attr, sep_attr)
+    ---@class PostalCode
+    ---@field zip string US Postal Code Start
+    ---@field plus_four string|nil US Postal Code End
+    ---@field fsa string CA Postal Code Start
+    ---@field ldu string CA Postal Code End
+    ---@field incode string UK Postal Code End
+    ---@field outcode string UK Postal Code End
     local ret = {}
     local part_names = split_string(parts_attr, ',')
     local parts = split_string(text, sep_attr)
@@ -118,19 +151,34 @@ local function extract_postal_code_names(text, parts_attr, sep_attr)
     return ret
 end
 
+---Parse the xml contents of a single <address> node into an address table
+---@param p lftr_pllr.Puller
+---@param open lftr_pllr.Event The event that opened this <address> node
+---@return Address
 local function parse_address(p, open)
     assert_eq(open.ty, lftr_pllr.event_type.open_tag)
     assert_eq(open.name, 'address')
     local address_end = p:next()
     assert_eq(address_end.ty, lftr_pllr.event_type.tag_end)
+    ---@class Address
+    ---@field name string
+    ---@field street_address string
+    ---@field street_address2 string|nil
+    ---@field city string
+    ---@field state string|nil
+    ---@field province string|nil
+    ---@field postal_code PostalCode
+    ---@field country string
     local ret = {}
     while true do
         local node = extract_node_info(p)
+        -- update add names to have _ instead of -
         local normalized_name = string.gsub(node.name, '-', '_')
         if normalized_name == 'postal_code' then
             ret[normalized_name] = extract_postal_code_names(node.text, node.attrs.components, node.attrs.sep)
         else
             ret[normalized_name] = node.text
+            -- country is the last element in our address nodes
             if normalized_name == 'country' then
                 break
             end
@@ -142,6 +190,9 @@ local function parse_address(p, open)
     return ret
 end
 
+---Parse a single html <address> node's contents into a table
+---@param p lftr_pllr.Puller
+---@return Address[]
 local function parse_addresses(p)
     local addresses_start = assert(p:next())
     assert_eq(addresses_start.ty, lftr_pllr.event_type.open_tag)
@@ -159,6 +210,8 @@ local function parse_addresses(p)
     return addresses
 end
 
+--- Print an address table in the appropriate format for the country
+---@param address Address the address table to be printed
 local function print_address(address)
     print(address.name)
     print(address.street_address)
@@ -167,39 +220,44 @@ local function print_address(address)
     end
     if address.country == 'USA' then
         print(string.format("%s, %s %s", address.city, address.state, address.postal_code.zip))
-    elseif address.country == 'UK' then
-        print(address.city)
+    elseif address.country == 'England' then
+        print(string.upper(address.city))
         print(string.format('%s %s', address.postal_code.outcode, address.postal_code.incode))
+        print('UNITED KINGDOM')
+        return
     elseif address.country == 'CANADA' then
         print(string.format("%s %s %s %s", address.city, address.province, address.postal_code.fsa, address.postal_code.ldu))
     end
     print(address.country)
 end
 
+-- parse the addresses into a list
 local addresses = parse_addresses(puller)
 
+--- print each address to the console
 for _, address in ipairs(addresses) do
     print('-----------')
     print_address(address)
     print('-----------')
 end
+
 ```
 
 when run would output the following
 
 ```sh
-XML Declaration: version = 1.1, encoding = UTF-8
 -----------
 Sherlock Holmes
 187 North Gower Street
-Kings Cross
-England
+LONDON
+NW1 2NJ
+UNITED KINGDOM
 -----------
 -----------
 Balki Bartokomous
-711 Coldwell St.
+1100 S Main St.
 Apt 209
-Chicago, IL 60714
+Los Angeles, CA 90015
 USA
 -----------
 -----------
