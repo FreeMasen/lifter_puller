@@ -1,8 +1,8 @@
 package = "lifter_puller"
-version = "dev-1"
+version = "0.1.0-1"
 source = {
    url = "git+ssh://git@github.com/Freemasen/lifter_puller",
-   branch = "mvp"
+   tag = "v0.1.0"
 }
 description = {
    summary = "An xml pull parser in pure lua",
@@ -20,3 +20,4 @@ build = {
       ["lifter_puller.puller"] = "lifter_puller/puller.lua"
    }
 }
+rockspec_format = "3.0"
