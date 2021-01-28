@@ -324,3 +324,8 @@ TagEnd
 Text
 CloseTag
 ```
+
+## What's with the name?
+
+[Lifter Puller](https://en.wikipedia.org/wiki/Lifter_Puller) was a band in Minneapolis in the mid to late 90s
+some members went on to become [The Hold Steady](https://en.wikipedia.org/wiki/The_Hold_Steady)
