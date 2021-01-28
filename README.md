@@ -21,7 +21,7 @@ what protocol specific parsing might look like.
 ## Installation
 
 ```sh$
-lua rocks install lifter_puller
+luarocks install lifter_puller
 ```
 ## Usage
 
