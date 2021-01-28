@@ -1,17 +1,3 @@
-# Lifter Puller
-
-An xml pull parser in pure lua
-
-## Usage
-
-### Installation
-
-```sh$
-lua rocks install lifter_puller
-```
-### Parse some xml
-
-```lua
 local xml = [[<?xml version="1.1" encoding="UTF-8"?>
 <!-- List of addresses -->
 <addresses>
@@ -32,14 +18,14 @@ local xml = [[<?xml version="1.1" encoding="UTF-8"?>
     <address>
         <name>Balki Bartokomous</name>
         <street-address>
-            1100 S Main St
+            711 Coldwell St.
         </street-address>
         <street-address2>
             Apt 209
         </street-address2>
-        <city>Los Angeles</city>
-        <state>CA</state>
-        <postal-code components="zip,plus-four" sep="-">90015-4858</postal-code>
+        <city>Chicago</city>
+        <state>IL</state>
+        <postal-code components="zip,plus-four" sep="-">60714-4471</postal-code>
         <country>USA</country>
     </address>
     <address>
@@ -183,29 +169,3 @@ for _, address in ipairs(addresses) do
     print_address(address)
     print('-----------')
 end
-```
-
-when run would output the following
-
-```sh
-XML Declaration: version = 1.1, encoding = UTF-8
------------
-Sherlock Holmes
-187 North Gower Street
-Kings Cross
-England
------------
------------
-Balki Bartokomous
-711 Coldwell St.
-Apt 209
-Chicago, IL 60714
-USA
------------
------------
-David Rose
-308399 Hockley Rd
-Orangeville ON L9W 2Z2
-CANADA
------------
-```

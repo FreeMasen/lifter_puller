@@ -1,3 +1,9 @@
 .vscode
 *.rock
 lua_modules
+*.out
+*.log/luarocks
+/lua
+/lua_modules
+/.luarocks
+/luarocks

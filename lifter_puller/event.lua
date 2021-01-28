@@ -1,3 +1,4 @@
+--- Event Type "enum"
 local event_type = {
     declaration = 'Declaration',
     open_tag = 'OpenTag',
@@ -12,17 +13,42 @@ local event_type = {
     entity_declaration = 'EntityDeclaration',
     doctype_end = 'DocTypeEnd',
     cdata = "CData",
+    text = "Text",
+    eof = "EOF",
 }
 
+---@class Event
+---@field ty string
+---@field prefix string|nil
+---@field name string|nil
+---@field version string|nil
+---@field encoding string|nil
+---@field standalone boolean|nil
+---@field target string|nil
+---@field content string|nil
+---@field text string|nil
+---@field external_id string|nil
+---@field external_value string[2]|string|nil
+---@field ndata string|nil
+---@field value string|nil
+---@field is_empty boolean|nil
 local Event = {}
 
 Event.__index = Event
 
+---
+---@param e table
+---@return Event
 local function _create(e)
     setmetatable(e, Event)
     return e
 end
 
+---ctor for Declaration
+---@param version string
+---@param encoding string
+---@param standalone boolean
+---@return Event
 function Event.decl(version, encoding, standalone)
     return _create{
         ty = event_type.declaration,
@@ -32,6 +58,10 @@ function Event.decl(version, encoding, standalone)
     }
 end
 
+---ctor for processing instruction
+---@param target string
+---@param content string
+---@return Event
 function Event.pi(target, content)
     return _create{
         ty = event_type.processing_instruction,
@@ -40,6 +70,9 @@ function Event.pi(target, content)
     }
 end
 
+---ctor for comment
+---@param text string
+---@return Event
 function Event.comment(text)
     return _create{
         ty = event_type.comment,
@@ -47,6 +80,11 @@ function Event.comment(text)
     }
 end
 
+---ctor for doctype start
+---@param name string
+---@param external_id string
+---@param external_value string[] 1-2 entry list table
+---@return Event
 function Event.doctype_start(name, external_id, external_value)
     return _create{
         ty = event_type.doctype_start,
@@ -56,6 +94,11 @@ function Event.doctype_start(name, external_id, external_value)
     }
 end
 
+---ctor for empty doctype
+---@param name string
+---@param external_id string
+---@param external_value string[]
+---@return Event
 function Event.empty_doctype(name, external_id, external_value)
     return _create{
         ty = event_type.doctype,
@@ -65,6 +108,12 @@ function Event.empty_doctype(name, external_id, external_value)
     }
 end
 
+---ctor for entity declaration
+---@param name string
+---@param external_id string
+---@param external_value string[]
+---@param ndata string
+---@return Event
 function Event.entity_declaration(name, external_id, external_value, ndata)
     return _create{
         ty = event_type.entity_declaration,
@@ -75,12 +124,19 @@ function Event.entity_declaration(name, external_id, external_value, ndata)
     }
 end
 
+---ctor for DocTypeEnd
+---@return Event
 function Event.doctype_end()
     return _create{
         ty = event_type.doctype_end
     }
 end
 
+---<name
+---<prefix:name
+---@param prefix string
+---@param name string
+---@return Event
 function Event.open_tag(prefix, name)
     return _create{
         ty = event_type.open_tag,
@@ -89,6 +145,12 @@ function Event.open_tag(prefix, name)
     }
 end
 
+--- attr="value"
+--- prefix:attr="value"
+---@param prefix string
+---@param name string
+---@param value string
+---@return Event
 function Event.attr(prefix, name, value)
     return  _create{
         ty = event_type.attribute,
@@ -98,6 +160,10 @@ function Event.attr(prefix, name, value)
     }
 end
 
+--- </name>
+---@param prefix string
+---@param name string
+---@return Event
 function Event.close_tag(prefix, name)
     return _create{
         ty = event_type.close_tag,
@@ -106,6 +172,10 @@ function Event.close_tag(prefix, name)
     }
 end
 
+--- >
+--- /> (empty)
+---@param is_empty boolean
+---@return Event
 function Event.tag_end(is_empty)
     return _create{
         ty = event_type.tag_end,
@@ -113,11 +183,31 @@ function Event.tag_end(is_empty)
     }
 end
 
+---<![CDATA[text]]>
+---@param text string
+---@return Event
 function Event.cdata(text)
     return _create{
         ty = event_type.cdata,
         text = text,
     }
+end
+
+--->text</
+---@param text string
+---@return Event
+function Event.text(text)
+    return _create{
+        ty = event_type.text,
+        text = text
+    }
+end
+
+---End of stream reached
+---@return Event
+function Event.eof()
+    return _create{ ty = event_type.eof }
+
 end
 
 return {
